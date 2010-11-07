@@ -1,0 +1,1074 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Allow user to login the site through Aalto Social Interface (ASI).
+ * User
+ */
+
+/**
+ * Implementation of hook_menu
+ */
+function asi_account_menu(){
+    $items['admin/settings/asiaccount'] = array(
+        'title' => t('ASI Account'),
+        'description' => t('Configure the application account and password.'),
+        'page callback' => 'configure_asi_account_application_account',
+        'access arguments' => array('administer site configuration'),
+        'type' => MENU_NORMAL_ITEM,
+    );
+    $items['asiaccount/bind/mail'] = array(
+        'title' => t('Account email address'),
+        'description' => t('Email address for first login.'),
+        'page callback' => 'bind_mail_with_new_account',
+        'access callback' => 'user_is_new_asi_login',
+        'type' => MENU_CALLBACK,
+    );
+    $items['asiaccount/bind/account/validate'] = array(
+        'title' => t('Bind the account'),
+        'description' => t('Validate the password and bind the asi new login account with and existed user.'),
+        'page callback' => 'bind_account_validate',
+        'access callback' => 'user_is_new_asi_login_access_mail',
+        'type' => MENU_CALLBACK,
+    );
+    $items['asiaccount/bind/account/newusername'] = array(
+        'title' => t('Create a new username'),
+        'description' => t('Create a new username for this new account.'),
+        'page callback' => 'bind_account_new_username',
+        'access callback' => 'user_is_new_asi_login_access_mail',
+        'type' => MENU_CALLBACK,
+    );
+    $items['user/%user_category/asiInfo'] = array(
+        'title' => t('Aalto Social Account Info'),
+        'page callback' => 'user_asiInfo',
+        'page arguments' => array(1),
+        'access callback' => 'user_edit_access',
+        'access arguments' => array(1),
+        'load arguments' => array('%map', '%index'),
+        'type' => MENU_LOCAL_TASK,
+    );
+    $items['asiaccount/showInfo'] = array(
+        'title' => t('Aalto Social Account Info'),
+        'derscrption' => t('Show the user\'s ASI account information'),
+        'page callback' => 'show_asiInfo',
+        'access callback' => 'user_gets_userId',
+        'type' => MENU_CALLBACK,
+    );
+    $items['asiaccount/modifyInfo/confirmation'] = array(
+        'title' => t('ASI password comfrimation'),
+        'description' => t("Confirm the password is right or not"),
+        'page callback' => 'confirm_ASI_pass',
+        'access arguments' => array('access content'),
+        'type' => MENU_CALLBACK,
+    );
+    return $items;
+}
+
+/**
+ * Menu callback for admin/settings/asiaccount.
+ *  Display application account configure form.
+ */
+function configure_asi_account_application_account(){
+    /*$module_path = drupal_get_path('module', 'asi_account');
+    drupal_add_js($module_path.'/asi_account_admin.js');*/
+    $form_id = 'application_account_configure';
+    return drupal_get_form($form_id);
+}
+/**
+ * Menu callback for asiaccount/bind/mail
+ *   Get mail address before create a new user in drupal site.
+ *   If the mail address has already existed, bind the user with the asi account.
+ */
+function bind_mail_with_new_account(){
+    return drupal_get_form('email_address_binding_info');
+}
+/**
+ * Menu callback for asiaccount/bind/account/validate
+ *   Validate the password.
+ *   Bind the new login asi account with an existed user. 
+ */
+function bind_account_validate(){
+    return drupal_get_form('password_validate_info');
+}
+/**
+ * Menu callback for asiaccount/bind/account/newusername
+ *   Validate the new username.
+ *   Bind the new login asi account with a new created user.
+ */
+function bind_account_new_username(){
+    return drupal_get_form('bind_account_new_username_info');
+}
+
+/**
+ * Access callback
+ */
+function user_is_new_asi_login(){
+    $anonymous = user_is_anonymous();
+    return ($anonymous && isset($_SESSION['asi_account_id']));
+}
+/**
+ * Access callback
+ */
+function user_is_new_asi_login_access_mail(){
+    $anonymous = user_is_anonymous();
+    $isset_user_id = isset($_SESSION['asi_account_id']);
+    $isset_mail = isset($_SESSION['new_asi_account_mail']);
+    return ($anonymous&&$isset_mail&&$isset_user_id);
+}
+/**
+ * Access callback
+ */
+function user_gets_userId() {
+    $isset_user_id = isset($_SESSION['asi_account_id']);
+    return ($isset_user_id);
+}
+/**
+ * new username form
+ */
+function bind_account_new_username_info(){
+    $items['username'] = array(
+        '#type' => 'textfield',
+        '#title' => t('New Username'),
+        '#required' => TRUE,
+        '#description' => t('A new username for this site.'),
+    );
+    $items['next_step'] = array(
+        '#type' => 'submit',
+        '#value' => t('Next'),
+    );
+    return $items;
+}
+/**
+ * Handle validate for new username form
+ *  Check the username if it's already registered or not.
+ */
+function bind_account_new_username_info_validate($form, &$form_state){
+    $username = $form_state['values']['username'];
+    //check username
+    if(db_result(db_query("SELECT COUNT(*) FROM {users} WHERE LOWER(name) = LOWER('%s')", $username))>0){
+        form_set_error('username',t('The username %username has been registred.',array('%username'=>$username)));
+    }
+}
+/**
+ * Handle submit for new username form
+ *  Create new user and bind it with asi account
+ */
+function bind_account_new_username_info_submit($form, &$form_state){
+    $user_id = $_SESSION['asi_account_id'];
+    $mail = $_SESSION['new_asi_account_mail'];
+    $username = $form_state['values']['username'];
+    $user_info = array(
+        'name' => $username,
+        'mail' => $mail,
+        'status' => 1,
+    );
+    $user = user_save($account,$user_info);
+    if(isset($user->id)){
+        $add_user_sql = "INSERT INTO {asi_account}(uid,user_id) VALUES(%d,'%s');";
+        if(db_query($add_user_sql,$user->uid,$user_id)){
+            unset($_SESSION['asi_account_id']);
+            unset($_SESSION['new_asi_account_mail']);
+            $account = user_load($user->uid);
+            user_external_login($account);
+            exit;
+        }
+    }
+    drupal_set_message(t('Can not add new user.'),'error');
+}
+
+/**
+ * validate password form
+ */
+function password_validate_info(){
+    $items['note'] = array(
+        '#value' => t('<H3>The e-mail address %email is already registered. Do you want to bind this account with your asi account? <a href="@newaccount">Or create a new account.</a></H3>',array('%email'=>$_SESSION['new_asi_account_mail'],'@newaccount'=>url('asiaccount/bind/account/newusername'))),  
+    );
+    $items['password'] = array(
+        '#type' => 'password',
+        '#title' => t('Password'),
+        '#description' => t('Your password on this site. <a href="@password">Have you forgotten your password?</a>',array('@password' => url('user/password'))),
+        '#required' => TRUE,
+    );
+    $items['bind'] = array(
+        '#type' => 'submit',
+        '#value' => t('Bind'),
+    );
+    return $items;
+}
+/**
+ * Handle validate for validate password form
+ *   validate the password from database
+ */
+function password_validate_info_validate($form, &$form_state){
+    $mail = $_SESSION['new_asi_account_mail'];
+    $password = md5($form_state['values']['password']);
+    $check_sql = 'SELECT COUNT(*) FROM {users} WHERE LOWER(mail) = LOWER("%s") AND pass = "%s" ';
+    if(db_result(db_query($check_sql,$mail,$password))<1){
+        form_set_error('password',t('Incorrect password'));
+    }
+}
+/**
+ * Handle submit for validate password form
+ *   bind the existed user with asi account
+ */
+function password_validate_info_submit($form, &$form_state){
+    $mail = $_SESSION['new_asi_account_mail'];
+    $user_id = $_SESSION['asi_account_id'];
+    $get_user_sql = 'SELECT uid FROM {users} WHERE LOWER(mail) = LOWER("%s")';
+    $result = db_result(db_query($get_user_sql,$mail));
+    if(isset($result)){
+        $add_user_sql = "INSERT INTO {asi_account}(uid, user_id) VALUES(%d,'%s');";
+        if(db_query($add_user_sql,$result,$user_id)){
+            unset($_SESSION['asi_account_id']);
+            unset($_SESSION['new_asi_account_mail']);
+            $account = user_load($result);
+            user_external_login($account);
+            drupal_goto('user/'.$result);
+            exit;
+        }
+    }else{
+        drupal_set_message(t('Can not find the user whose email address is %mail',array('%mail'=>$mail)),'error');
+    }
+}
+/**
+ * Bind email address form
+ */
+function email_address_binding_info(){
+    $items['mail'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Email Address'),
+        '#required' => TRUE,
+        '#size' => 60,
+        '#maxlength' => EMAIL_MAX_LENGTH,
+        '#description' => t('A valid e-mail address. All e-mails from the system will be sent to this address.'),
+    );
+    $items['next-step'] = array(
+       '#type' => 'submit',
+       '#value' => t('Next'),
+    );
+    return $items;
+}
+/**
+ * Handle validation for email
+ */
+function email_address_binding_info_validate($form, &$form_state){
+    $mail = $form_state['values']['mail'];
+    
+    // Validate the e-mail address:
+    if ($error = user_validate_mail($mail)) {
+        form_set_error('mail', $error);
+    }
+    else if (db_result(db_query("SELECT COUNT(*) FROM {users} WHERE LOWER(mail) = LOWER('%s')", $mail)) > 0) {
+        $_SESSION['new_asi_account_mail'] = $mail;
+        drupal_goto('asiaccount/bind/account/validate');
+        exit;
+    }
+    else if (drupal_is_denied('mail', $mail)) {
+        form_set_error('mail', t('The e-mail address %email has been denied access.', array('%email' => $mail)));
+    }
+    
+}
+/**
+ * Handle submit for email_address_binding_info
+ *   Add new user with the asi username and email address
+ */
+function email_address_binding_info_submit($form, &$form_state){
+    $mail = $form_state['values']['mail'];
+    $user_id = $_SESSION['asi_account_id'];
+    $username = fetch_person_username($user_id);
+    if($username&&$username!=''){
+        //check username
+        $result = db_result(db_query("SELECT COUNT(*) FROM {users} WHERE LOWER(name) = LOWER('%s')", $username));
+        if($result>0){
+            //username has been registered
+            drupal_set_message(t('This <STRONG>%username</STRONG> has been registered. Please put a new one here.',array('%username'=>$username)),'warning');
+            $_SESSION['new_asi_account_mail'] = $mail;
+            drupal_goto('asiaccount/bind/account/newusername');
+            exit;
+        }else{
+            $user_info = array(
+                'name' => $username,
+                'mail' => $mail,
+                'status' => 1,
+            );
+            $user = user_save($account,$user_info);
+            if(isset($user->uid)){
+                $add_user_sql = "INSERT INTO {asi_account}(uid, user_id) VALUES(%d,'%s');";
+                if(db_query($add_user_sql,$user->uid,$user_id)){
+                    unset($_SESSION['asi_account_id']);
+                    $account = user_load($user->uid);
+                    user_external_login($account);
+                    exit;
+                }
+            }
+            drupal_set_message(t('Can not add new user.'),'error');
+        }
+    }else{
+        drupal_set_message(t('Can not get the username form ASI server, please create a new one for this site.'),'warning');
+    }
+}
+
+/**
+ * Get username from ASI server
+ *    GET /people/<user_id>/@self
+ */
+function fetch_person_username($user_id){
+
+    if($ch = curl_init()){
+        $url = variable_get('asi_server_address', '');
+        $app_name = variable_get('asi_account_app_name', '');
+        $app_password = variable_get('asi_account_app_password', '');
+        $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password;
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE); 
+        curl_setopt($ch, CURLOPT_COOKIESESSION, TRUE); 
+        curl_setopt($ch, CURLOPT_HEADER, 0);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIEJAR, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id()); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
+        //Login session
+        $post_url = $url.'/session';
+        curl_setopt($ch, CURLOPT_URL,$post_url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if($status==201){
+            //get user info
+            $get_url = $url.'/people/'.$user_id.'/@self';
+            curl_setopt($ch, CURLOPT_URL,$get_url);
+            curl_setopt($ch,CURLOPT_CUSTOMREQUEST, 'GET');
+            $data = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            //get person entry
+            if($status==200){
+                $user_obj = json_decode($data);
+                if(isset($user_obj->entry->username)){
+                    curl_close($ch);
+                    return $user_obj->entry->username;
+                }
+            }
+        }
+    }
+    curl_close($ch);
+    return FALSE;
+}
+
+/**
+ * Application account configure form.
+ */
+function application_account_configure(){
+    $form['application_account'] = array(
+	 '#type' => 'fieldset',
+	 '#title' => t('Configure Application Account for ASI'),
+         '#description' => t('You need to email cos@cs.hut.fi to get the application account.'),
+    );
+    $form['application_account']['app_name'] = array(
+	 '#type' => 'textfield',
+	 '#title' => t('Name'),
+         '#size' => 30,
+	 '#description' => t('The value of app_name'),
+	 '#default_value' => variable_get('asi_account_app_name', ''),
+    );
+    $form['application_account']['app_password'] = array(
+	 '#type' => 'textfield',
+	 '#title' => t('Pssword'),
+         '#size' => 30,
+	 '#description' => t('The value of app_password'),
+	 '#default_value' => variable_get('asi_account_app_password', ''),
+    );
+    $form['application_account']['asi_server_address'] = array(
+        '#type' => 'textfield',
+        '#title' => t('ASI server adddress'),
+        '#size' => 60,
+        '#description' => t('The ASI development server is http://cos.alpha.sizl.org/ and theproduction ASI is http://cos.sizl.org'),
+        '#default_value' => variable_get('asi_server_address', ''),
+    );
+    $form['application_account']['submit'] = array(
+	 '#type' => 'submit',
+	 '#value' => t('Save'),
+    );
+    
+    return $form;
+}
+/**
+ * Handle avlidation of Application account configure form.
+ *  Check if the account, password and server address are valid
+ */
+function application_account_configure_validate($form, &$form_state){
+    $app_name = $form_state['values']['app_name'];
+    $app_password = $form_state['values']['app_password'];
+    $url = $form_state['values']['asi_server_address'];
+    
+    $test_url = $url.'/session';
+    $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password;
+    
+    //POST session
+    if($ch = curl_init($test_url)){
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        //if login fails
+        if($status!=201){
+            $result = json_decode($data);
+            if(isset($result->messages)){
+                form_set_error('app_name',t($result->messages[0].' Please Check the account and password carefully.'));        
+            }else{
+                form_set_error('asi_server_address',t('Could not get the response, please check the server address.'));
+            }
+        }        
+        curl_close($ch);        
+    }else{
+        drupal_set_message(t('Can not initial cURL.'), 'error');
+    }    
+}
+/**
+ * Handle submission of Application account configure form.
+ *  Save the value of app_name and app_password. 
+ */
+function application_account_configure_submit($form,&$form_state){
+    $app_name = $form_state['values']['app_name'];
+    $app_password = $form_state['values']['app_password'];
+    $s_address = $form_state['values']['asi_server_address']; 
+    if(isset($app_name)&&$app_name!=''){
+        variable_set('asi_account_app_name', $app_name);
+    }
+    if(isset($app_password)&&$app_password!=''){
+        variable_set('asi_account_app_password', $app_password);
+    }
+    if(isset($s_address)){
+        variable_set('asi_server_address', $s_address);
+    }    
+}
+
+/**
+ * Implementation of hook_form_alter : adds ASI login checkbox to the login forms.
+ */
+function asi_account_form_alter(&$form, $form_state, $form_id) {
+    if ($form_id == 'user_login_block' || $form_id == 'user_login') {
+        //if the asi_login is checked, use the asi account
+        if(!empty($form_state['post']['asi_login'])){
+            $form['#validate'] = array('asi_account_login_validate');
+        }
+        $form['asi_login'] = array(
+            '#type' => 'checkbox',
+            '#title' => t('Use the Aalto Social Account to login.'),
+        );
+    }else if($form_id == 'user_register'){
+        drupal_add_css(drupal_get_path('module', 'asi_account') .'/asi_account.css');
+        drupal_add_js(drupal_get_path('module', 'asi_account') .'/asi_account.js');
+        //if the asi_register is checked, add new user account
+        if(!empty($form_state['post']['asi_register'])){
+            unset($form['#submit']);
+            $form['#validate'] = array('asi_account_register_validate');
+        }
+        $form['asi_register'] = array(
+            '#type' => 'checkbox',
+            '#title' => t('Also register the new account in ASI.'),
+        );
+        $form['asi_account_password'] = array(
+            '#type' => 'password',
+            '#title' => t('Password'),
+            '#size' => 58,
+        );
+        $form['asi_account_confirm_password'] = array(
+            '#type' => 'password',
+            '#title' => t('Confirm password'),
+            '#size' => 58,
+        );
+    }
+    return $form;
+}
+
+/**
+ * Login form _validate hook 
+ */
+function asi_account_login_validate($form, &$form_state){
+    
+    $name = $form_state['values']['name'];
+    $pass = $form_state['values']['pass'];
+    
+    //login in the ASI server
+    $url = variable_get('asi_server_address', '').'/session';
+    $app_name = variable_get('asi_account_app_name', '');
+    $app_password = variable_get('asi_account_app_password', '');
+    
+    $postfield = 'session[app_name]='.$app_name
+                .'&session[app_password]='.$app_password
+                .'&session[username]='.$name
+                .'&session[password]='.$pass;
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+    $data = curl_exec($ch);
+    if($data){
+        $result = json_decode($data);
+        if(isset($result->messages)){
+            $form['pass']['#value'] = '';
+            form_set_error('name',t($result->messages[0]));        
+        }else if(isset($result->entry->user_id)){
+            $user_id = $result->entry->user_id;
+            if(login_local_drupal_site($user_id)===FALSE){
+                form_set_error('asi_login',t('ASI login failed.'));
+            }   
+        }else{
+            form_set_error('',t('Request Error'));
+        }
+    }else{
+        form_set_error('name',t('Could not connect the ASI server. Please contact the administrator.'));
+    }
+}
+/**
+ * Login local drupal site
+ */
+function login_local_drupal_site($user_id){
+    //check asi account from tabel{asi_account}
+    $sql = 'SELECT uid FROM {asi_account} WHERE user_id="%s"';
+    $result = db_fetch_object(db_query($sql,$user_id));
+    if(isset($result->uid)){
+        $uid = $result->uid;
+        $account = user_load($uid);
+        if($account){
+            user_external_login($account);
+            //return TRUE;
+        }else{
+            drupal_set_message(t("No user ".$user_id), 'warning');
+            return FALSE;
+        }
+    }else{
+        //new asi account
+        drupal_set_message(t("New user from ASI."), 'status');
+        
+        //Bind ASI account with local drupal site.
+        $_SESSION['asi_account_id'] = $user_id;
+        header('Location:'.url('asiaccount/bind/mail'));
+        exit;
+    }
+}
+
+/**
+ *
+ */
+function login_as_admin_asi_session(){
+    //delete old session
+    $delete_session = variable_get('asi_server_address', '').'/session';
+    $data = handle_delete_action($delete_session);
+    //login
+    //login in the ASI server
+    $post_session = variable_get('asi_server_address', '').'/session';
+    $app_name = variable_get('asi_account_app_name', '');
+    $app_password = variable_get('asi_account_app_password', '');
+    
+    $postfield = 'session[app_name]='.$app_name
+                .'&session[app_password]='.$app_password;
+    $data = handle_post_action($post_session,$postfield);
+    return $data;
+}
+/**
+ * Register form _validate hook
+ */
+function asi_account_register_validate($form, &$form_state){
+    
+    $name = $form_state['values']['name'];
+    $mail = $form_state['values']['mail'];
+    $password = $form_state['values']['asi_account_password'];
+    $c_password = $form_state['values']['asi_account_confirm_password'];
+    
+    if(!isset($password)||strlen($password)<4||strlen($password)>20){
+        form_set_error('asi_account_password',t('Password is required. And the length should between 4-20'));
+    }
+    if(!isset($c_password)||strcmp($password,$c_password)!=0){
+        form_set_error('asi_account_confirm_password',t('The password are not the same!'));
+    }    
+    
+    //check account avaiability
+    if($ch = curl_init()){
+        $url = variable_get('asi_server_address', '');
+        $app_name = variable_get('asi_account_app_name', '');
+        $app_password = variable_get('asi_account_app_password', '');
+        $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password;
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE); 
+        curl_setopt($ch, CURLOPT_COOKIESESSION, TRUE); 
+        curl_setopt($ch, CURLOPT_HEADER, 0); 
+        curl_setopt($ch, CURLOPT_COOKIEFILE, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIEJAR, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id()); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
+        //Login session
+        $post_url = $url.'/session';
+        curl_setopt($ch, CURLOPT_URL,$post_url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if($status!=201){
+            //login false
+            curl_close($ch);
+            form_set_error('asi_register',t('Can not register in ASI. Please contact the administrator.'));
+        }
+        
+        //check username and email address
+        $get_url = $url.'/people/availability?username='.$name.'&email='.$mail;
+        curl_setopt($ch, CURLOPT_URL,$get_url);
+        curl_setopt($ch,CURLOPT_CUSTOMREQUEST, 'GET');
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        $avaiable = json_decode($data);
+        if($status==200&&isset($avaiable->entry[0])){
+            $email_avaiable = $avaiable->entry[0]->email;
+            $user_avaiable = $avaiable->entry[0]->username;
+            if($email_avaiable=='unavailable'){
+                form_set_error('mail',t('Your email address has already been registered in ASI.'));
+            }elseif($user_avaiable=='unavailable'){
+                form_set_error('name',t('This username has already been registered. Please try another one.'));
+            }elseif($email_avaiable=='available'&&$user_avaiable=='available'){
+                register_new_asi_account($name,$mail,$password);
+            }            
+        }else{
+            form_set_error('asi_register',t('Unknow error from ASI server.'));
+        }
+    }else{
+        drupal_set_message(t('Can not initial the cURL.'), 'error');  
+    }
+    
+}
+
+/**
+ * ASI account login
+ * @return
+ *     String: user_id
+ */
+/*function asi_account_login($name,$pass){
+    
+    //login in the ASI server
+    $url = variable_get('asi_server_address', '').'/session';
+    $app_name = variable_get('asi_account_app_name', '');
+    $app_password = variable_get('asi_account_app_password', '');
+    
+    $postfield = 'session[app_name]='.$app_name
+                .'&session[app_password]='.$app_password
+                .'&session[username]='.$name
+                .'&session[password]='.$pass;
+    if($ch=curl_init($url)){
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if($status==201){
+            $result = json_decode($data);
+            if(isset($result->entry->user_id)){
+                $user_id = $result->entry->user_id;
+                return $user_id;
+            }
+        }
+        return FALSE;
+    }else{
+        return FALSE;
+    }
+}*/
+
+/**
+ * Register new user
+ *  1, in asi
+ *  2, in drupal
+ */
+function register_new_asi_account($name,$mail,$password){
+    //Post new people
+    if($ch=curl_init()){
+        $url = variable_get('asi_server_address', '');
+        $app_name = variable_get('asi_account_app_name', '');
+        $app_password = variable_get('asi_account_app_password', '');
+        $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password;
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE); 
+        curl_setopt($ch, CURLOPT_COOKIESESSION, TRUE); 
+        curl_setopt($ch, CURLOPT_HEADER, 0); 
+        curl_setopt($ch, CURLOPT_COOKIEFILE, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIEJAR, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id()); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
+        //Login session
+        $post_url = $url.'/session';
+        curl_setopt($ch, CURLOPT_URL,$post_url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $result = json_decode($data);
+        if($status==201){
+            $post_people = $url.'/people';
+            $post_field = 'person[username]='.$name
+                        .'&person[email]='.$mail
+                        .'&person[password]='.$password
+                        .'&person[is_association]=true&person[consent]=FN1';
+            curl_setopt($ch, CURLOPT_URL,$post_people);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $post_field);
+            $data = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $result = json_decode($data);
+            curl_close($ch);
+            if($status==201){
+                //create new people successfully
+                $people = json_decode($data);
+                $user_id = $people->entry->id;
+                //create new user in drupal
+                $user_info = array(
+                    'name' => $name,
+                    'mail' => $mail,
+                    'status' => 1,
+                    'pass' => $password,
+                );
+                $user = user_save($account,$user_info);
+                if(isset($user->uid)){
+                    //bind user with asi account
+                    $add_sql = "INSERT INTO {asi_account} (uid,user_id) VALUES(%d,'%s')";
+                    db_query($add_sql,$user->uid,$user_id);
+                    //load user
+                    $account = user_load($user->uid);
+                    if($account){
+                        user_external_login($account);
+                        drupal_goto('user/'.$user->uid);
+                    }
+                }
+            }else{
+                drupal_set_message(t('Sorry, can not create new people in ASI. '.$result->messages[0]), 'warning');
+            }
+        }else{
+            curl_close($ch);
+            drupal_set_message(t('Sorry, can not post new session in ASI. '.$result->messages[0]), 'warning');
+        }   
+    }else{
+        drupal_set_message(t('Can not initial the cURL.'), 'error'); 
+    }
+}
+
+/**
+ * Initial connection, login asi
+ *   POST /session with applcaction account login.
+ * @return $ch
+ */
+function init_login_asi(&$ch){
+    if($ch){
+        $url = variable_get('asi_server_address', '');
+        $app_name = variable_get('asi_account_app_name', '');
+        $app_password = variable_get('asi_account_app_password', '');
+        $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password;
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE); 
+        curl_setopt($ch, CURLOPT_COOKIESESSION, TRUE); 
+        curl_setopt($ch, CURLOPT_HEADER, 0); 
+        curl_setopt($ch, CURLOPT_COOKIEFILE, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIEJAR, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id()); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
+        //Login session
+        $post_url = $url.'/session';
+        curl_setopt($ch, CURLOPT_URL,$post_url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if($status!=201){
+            //login failed
+            curl_close($ch);
+        }
+    }else{
+        drupal_set_message(t('Can not initial the cURL.'), 'error');  
+    }
+    return $ch;
+}
+
+/**
+ * Implementation of hook_user()
+ */
+function asi_account_user($op, &$edit, &$account, $category = NULL){
+    switch($op){
+        case 'delete':
+            /* Remove the user info from asi_account table */
+            $uid = $account->uid;
+            $delete_sql = "DELETE FROM {asi_account} WHERE uid=%d";
+            db_query($delete_sql,$uid);
+            break;  
+    }
+}
+
+
+/**
+ * Implementation of hook_help()
+ */
+function asi_account_help($path, $arg) {
+    if($path == 'admin/help#asi_account') {
+        $asi_url = 'http://cos.sizl.org/';
+        $txt = 'This module provides the users to login the site through Aalto Social Interface '
+                .'<a href="'.$asi_url.'">(ASI)</a>.';
+        return '<p>'.t($txt).'</p>';
+    }
+}
+/**
+ *
+ */
+function user_asiInfo($account, $category = 'account') {
+    $uid = $account->uid;
+    if (db_result(db_query("SELECT COUNT(*) FROM {asi_account} WHERE uid = %d", $uid))>0) {
+        $sql = 'SELECT user_id FROM {asi_account} WHERE uid="%d"';
+        $result = db_fetch_object(db_query($sql,$uid));
+        if(isset($result->user_id)){
+            $user_id = $result->user_id;
+            $_SESSION['asi_account_id'] = $user_id;
+            header('Location:'.url('asiaccount/showInfo'));
+            exit;
+        }else{
+            //new asi account
+        }
+    }
+}
+/**
+ *
+ */
+function show_asiInfo() {
+    if($ch=curl_init()){
+        $url = variable_get('asi_server_address', '');
+        $app_name = variable_get('asi_account_app_name', '');
+        $app_password = variable_get('asi_account_app_password', '');
+        $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password;
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE); 
+        curl_setopt($ch, CURLOPT_COOKIESESSION, TRUE); 
+        curl_setopt($ch, CURLOPT_HEADER, 0); 
+        curl_setopt($ch, CURLOPT_COOKIEFILE, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIEJAR, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id()); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
+        //Login session
+        $post_url = $url.'/session';
+        curl_setopt($ch, CURLOPT_URL,$post_url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if($status==201){
+            $post_people = $url.'/people/'.$_SESSION['asi_account_id'].'/@self';
+            curl_setopt($ch, CURLOPT_URL,$post_people);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET'); 
+            $data = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $result = json_decode($data);
+            curl_close($ch);
+            if($status==200){
+                //get user's ASI info successfully
+                $user_info = json_decode($data);
+                $form_id = 'user_information_configuration';
+                return drupal_get_form($form_id,$user_info);
+            }else{
+                drupal_set_message(t('Sorry, can not get user\'info in ASI. '.$result->messages[0]), 'warning');
+            }
+        }else{
+            curl_close($ch);
+            drupal_set_message(t('Sorry, can not get session in ASI. '.$result->messages[0]), 'warning');
+        }   
+    }else{
+        drupal_set_message(t('Can not initial the cURL.'), 'error'); 
+    }
+}
+/**
+ *
+ */
+function user_information_configuration(&$form_state,$user_info) {
+    drupal_add_css(drupal_get_path('module', 'asi_account').'/js_and_css/fancybox/jquery.fancybox-1.3.1.css');
+    drupal_add_js(drupal_get_path('module', 'asi_account').'/js_and_css/jquery-1.3.2.min.js');
+    drupal_add_js(drupal_get_path('module', 'asi_account').'/js_and_css/datepicker/WdatePicker.js');
+    drupal_add_js(drupal_get_path('module', 'asi_account').'/js_and_css/fancybox/jquery.fancybox-1.3.1.pack.js');
+    drupal_add_js(drupal_get_path('module', 'asi_account').'/js_and_css/pass_confirmation.js');
+    $pass_confir_path = url('asiaccount/modifyInfo/confirmation');
+    drupal_add_js(array('asi'=>array('pass'=>array('confirmation'=>$pass_confir_path))),'setting');
+    $module_path = drupal_get_path('module', 'asi_account');
+    $form['change_password'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Change password'),
+        '#collapsible' => TRUE,
+        '#collapsed' => TRUE,
+    );
+    $form['change_password']['new_password'] = array(
+        '#type' => 'password_confirm',
+        '#size' => 20, 
+    );
+    $form['change_password']['pass_info'] = array(
+        '#value' => '<div id="pass_info" style="display:none;color:red">The specified passwords do not match.</div>', 
+    );
+    $form['account_information'] = array(
+	'#type' => 'fieldset',
+        '#collapsible' => TRUE,
+        '#collapsed' => TRUE,
+	'#title' => t('Configure Account Information for ASI'),
+    );
+    $form['account_information']['family_name'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Famil name'),
+        '#size' => 20,
+        '#default_value' => $user_info->entry->name->family_name,
+    );
+    $form['account_information']['given_name'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Given name'),
+        '#size' => 20,
+        '#default_value' => $user_info->entry->name->given_name,
+    );
+    $form['account_information']['gender'] = array(
+        '#type' => 'select',
+        '#title' => t('Gender'),
+        '#options' => array(
+                  MALE  => 'Male',
+                  FEMALE  => 'Female',
+        ),
+        '#default_value' => $user_info->entry->gender,
+    );
+    $form['account_information']['birthdate'] = array(
+        '#value' => '<label for="edit-birthdate" style="font-weight:bold">Birthdate: </label>
+                        <div id="select_birthday">
+                        <input id="birthday_text" type="text" value="'.$user_info->entry->birthdate.'" />
+                        <img id="datapicker_img" src="'.$module_path.'/js_and_css/datepicker/skin/datePicker.gif" width="16" height="22" align="absmiddle" />
+                    </div>',
+    );
+    $form['account_information']['street_address'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Street address'),
+        '#size' => 50,
+        '#default_value' => $user_info->entry->address->street_address,
+    );
+    $form['account_information']['postal_code'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Postal code'),
+        '#size' => 10,
+        '#default_value' => $user_info->entry->address->postal_code,
+    );
+    $form['account_information']['locality'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Locality'),
+        '#size' => 20,
+        '#default_value' => $user_info->entry->address->locality,
+    );
+    $form['account_information']['description'] = array(
+        '#type' => 'textarea',
+        '#title' => t('Description'),
+        '#rows' => 10,
+        '#default_value' => $user_info->entry->description,
+    );
+    $form['save'] = array(
+        '#value' => '<input type="button" value="Save" id="submit_info" />',
+    );
+    $form['username'] = array(
+        '#type' => 'hidden',
+        '#value' => $user_info->entry->username,
+    );
+    $form['pass_confirmation'] = array(
+       '#value' => '<div style="display:none;"> 
+                        <a href="#passConfirmation" id="link">Click</a>
+                    </div>
+                    <div id="passConfirmation" style="display:none">
+                        <div style="font-weight:bold">
+                            <label for="title">Password: </label>
+                        </div>
+                        <div id="passText" style="margin:0.5em 0.5em 1em 0">
+                            <input type="password" value="" size="30" id="pass" name="asi_pass_confirmation" />
+                            <div id="response_info" style="color:red"></div>
+                        </div>
+                        <div style="margin:2em 0.5em 1em 0">
+                            <input type="button" value="OK" id="ASI_pass_submit" />
+                        </div>
+                    </div>', 
+    );
+    return $form;
+}
+function confirm_ASI_pass() {
+    if($ch=curl_init()){
+        $username = $_POST['username'];
+        $pass = $_POST['pass'];
+        $familyName = $_POST['familyName'];
+        $givenName = $_POST['givenName'];
+	$gender = $_POST['gender'];
+	$birthday = $_POST['birthday'];
+	$streetAddress = $_POST['streetAddress'];
+	$postCode = $_POST['postCode'];
+	$locality = $_POST['locality'];
+	$description = $_POST['description'];
+        $newPass = $_POST['newPass'];
+        $url = variable_get('asi_server_address', '');
+        $app_name = variable_get('asi_account_app_name', '');
+        $app_password = variable_get('asi_account_app_password', '');
+        $postfield = 'session[app_name]='.$app_name.'&session[app_password]='.$app_password.'&session[username]='.$username.'&session[password]='.$pass;
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE); 
+        curl_setopt($ch, CURLOPT_COOKIESESSION, TRUE); 
+        curl_setopt($ch, CURLOPT_HEADER, 0); 
+        curl_setopt($ch, CURLOPT_COOKIEFILE, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIEJAR, "cookiefile"); 
+        curl_setopt($ch, CURLOPT_COOKIE, session_name() . '=' . session_id()); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1); 
+        //Login session
+        $post_url = $url.'/session';
+        curl_setopt($ch, CURLOPT_URL,$post_url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST'); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postfield); 
+        $data = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if($status==201){
+            $put_people = $url.'/people/'.$_SESSION['asi_account_id'].'/@self';
+            if (!empty($familyName)) {
+                $putfield = 'person[name][family_name]='.$familyName;
+            }
+            if (!empty($givenName)) {
+                $putfield = $putfield.'&person[name][given_name]='.$givenName;
+            }
+            if (!empty($gender)) {
+                $putfield = $putfield.'&person[gender]='.$gender;
+            }
+            if (!empty($birthday)) {
+                $putfield = $putfield.'&person[birthdate]='.$birthday;
+            }
+            if (!empty($streetAddress)) {
+                $putfield = $putfield.'&person[address][street_address]='.$streetAddress;
+            }
+            if (!empty($postCode)) {
+                $putfield = $putfield.'&person[address][postal_code]='.$postCode;
+            }
+            if (!empty($locality)) {
+                $putfield = $putfield.'&person[address][locality]='.$locality;
+            }
+            if (!empty($description)) {
+                $putfield = $putfield.'&person[description]='.$description;
+            }
+            if (!empty($newPass)) {
+                $putfield = $putfield.'&person[password]='.$newPass;
+            }
+            curl_setopt($ch, CURLOPT_URL,$put_people);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $putfield); 
+            $data = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if($status==200){
+                //update successfully!
+                printf('4');
+            }else{
+                //Can not update user's info in ASI.
+                printf('1');
+            }
+        }else{
+            //fail to connect to the ASI server!
+            curl_close($ch);
+            //Can not get session in ASI. Fail to connect to the ASI server
+            printf('2');
+        }
+    }else{
+        //Can not initial the cURL.
+        printf('3'); 
+    }
+}

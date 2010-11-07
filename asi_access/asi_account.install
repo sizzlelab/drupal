@@ -1,0 +1,38 @@
+<?php
+// $Id$
+/**
+ * Implementation of hook_install().
+ */
+function asi_account_install() {
+    drupal_install_schema('asi_account');
+}
+/**
+ * Implementation of hook_uninstall().
+ */
+function asi_account_uninstall() {
+    drupal_uninstall_schema('asi_account');
+}
+/**
+ * Implementation of hook_schema().
+ */
+function asi_account_schema() {
+    $schema['asi_account'] = array(
+        'fields' => array(
+            'uid' => array(
+                'type' => 'int',
+                'unsigned' => TRUE,
+                'not null' => TRUE,
+            ),
+            'user_id' => array(
+                'type' => 'char',
+                'length' => 22,
+                'not null' => TRUE,
+            ),
+        ),
+        'indexes' => array(
+            'user_id' => array('user_id'),
+        ),
+        'primary key' => array('uid'),
+    );
+    return $schema;
+}

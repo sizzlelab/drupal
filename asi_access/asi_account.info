@@ -1,0 +1,6 @@
+; $Id$
+name = "ASI accounts access"
+description = "Allow user to login the site through Aalto Social Interface (ASI)."
+dependencies[] = jquery_ui
+core = 6.x
+php = 5.x

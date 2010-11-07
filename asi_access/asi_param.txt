@@ -1,0 +1,23 @@
+#test application account#
+POST /session
+session[app_name]=sizzlelab&session[app_password]=Siar2Rx4TJb3
+
+#Login in whith user account#
+POST /session
+session[app_name]=sizzlelab&session[app_password]=Siar2Rx4TJb3&session[username]=miyula&session[password]=alucard
+
+{userid = dHZb2SU4er36mNaaWPEYjL}
+{appid = aAIRwmUN0r37c6aaWPEYjL}
+
+Test£º
+/appdata/dHZb2SU4er36mNaaWPEYjL/@self/aAIRwmUN0r37c6aaWPEYjL/
+
+#add info for user#
+PUT 
+data[any_key]=email&data[any_other_key]=miyula@g.com
+
+#Create user#
+POST /people
+person[username]=mokkk&person[password]=111111&person[email]=705469836@qq.com&person[is_associantion]=true
+
+person[username]=mokila&person[email]=705469836@qq.com&person[is_association]=true&person[consent]=FN1
