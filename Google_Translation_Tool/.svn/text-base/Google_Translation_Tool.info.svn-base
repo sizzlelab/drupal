@@ -1,0 +1,5 @@
+; $Id$
+name = "Google Translation Tool"
+description = "Provide translation service depends on Google translation API."
+core = 6.x
+php = 5.x

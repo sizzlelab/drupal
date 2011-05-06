@@ -1,0 +1,156 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for displaying the translation block.
+ */
+ 
+ //include_once("simple_html_dom.php");
+ 
+/**
+ * Implementation of hook_help()
+ */
+function Google_Translation_Tool_help($path, $arg) {
+    if($path == 'admin/help#google_translation_tool') {
+        $txt = 'This module provides translation to all languages that Google Language API supports:'
+		.'<ul>'
+		.'<li>A block for translation panel -- Google translation tool</li>'
+		.'<li>A translate widget for content</li>'
+		.'</ul>';
+        return '<p>'.t($txt).'</p>';
+    }
+}
+
+/**
+ * Implementation of hook_init().
+ */
+function Google_Translation_Tool_init() {
+    drupal_set_html_head('<script src="http://www.google.com/jsapi" type="text/javascript"></script>');
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function Google_Translation_Tool_menu() {
+  /*$items['admin/settings/translation'] = array(
+    'title' => 'Translation settings',
+    'description' => 'Configure google API key for translation.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('translation_admin_settings'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['node/%node/gtranslate'] = array(
+    'title' => 'Translate',
+    'page callback' => 'gtranslate',
+    'page arguments' => array(1, 'node'),
+    'access arguments'=> array('access content'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 100,
+    );*/
+  $items['node/%node'] = array(
+    'title' => 'Translate',
+    'page callback' => 'gtranslate',
+    'page arguments' => array(1, 'node'),
+    'access arguments'=> array('access content'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 100,
+    );
+  return $items;
+}
+function gtranslate($node){
+    drupal_add_js(drupal_get_path("module","Google_Translation_Tool")."/auto_translate.js");
+    drupal_add_js(drupal_get_path("module","Google_Translation_Tool").'/translation_panel.js');
+    $content = node_view($node);
+    $content = "<div id='translate-box'>"
+		."<select name='language-list' id='content-target-translate-language'></select>"
+		."<input type='button' value='Translate it' onclick='content_translate_onclick();'/>"
+		."<input type='button' value='Show Original' onclick='content_original_onclick();'/>"
+		."</div>"
+	       .'<div id="translate-content">'.$content.'</div>'
+	       .'<div id="original-content" style="display:none">'.$content.'</div>';
+    return $content;
+}
+
+/**
+ * Implementation of hook_block().
+ */
+function Google_Translation_Tool_block($op = 'list', $delta = 0, $edit = array()){
+    switch($op){
+        case 'list':
+            $blocks[0]['info'] = t('Google translation tool');
+	    $blocks[1]['info'] = t('Whole page translate');
+            return $blocks;
+        case 'view':
+	    $module_path = drupal_get_path('module', 'Google_Translation_Tool');
+	    drupal_add_js($module_path.'/translation_panel.js');
+	    switch($delta){
+		case 0: 
+		    $blocks['subject'] = t('Translation');
+		    $blocks['content'] = drupal_get_form('Google_Translation_Tool_form');
+		    return $blocks;
+		case 1:
+		    $blocks['subject'] = t('Translate Page');
+		    $blocks['content'] = '<select name="language-list" id="page-target-translate-language"></select>'
+		                         .'<input class="form-submit" onclick="translate_page_onclick()" type="button" value="Translate" />';
+		    return $blocks;
+	    }
+    }    
+}
+
+
+/**
+ * Implementation of the drupal_get_form function
+ */
+function Google_Translation_Tool_form(){
+    $form['translation'] = array(
+	'#type' => 'fieldset',
+	'#title' => t('Translate the text user input'),
+    );
+    $form['translation']['original_text'] = array(
+	'#type' => 'textarea',
+	'#title' => t('Original text'),
+	'#suffix' => "<select name='language-list' id='text-target-translate-language'></select>"
+		    ."<input type='button' id='translate' value='Translate to' onclick='translationtext()' />",
+    );
+    $form['translation']['translation_text'] = array(
+	'#type' => 'textarea',
+	'#title' => t('Translated copy'),
+    );
+    return $form;
+}
+
+function translation_admin_settings() {
+	$form['API_key'] = array(
+	 '#type' => 'fieldset',
+	 '#title' => t('Adjust the AJAX search API key'),
+    );
+    $form['API_key']['key'] = array(
+	 '#type' => 'textfield',
+	 '#title' => t('AJAX search API key'),
+	 '#default_value' => variable_get('googlemap_api_key', ''),
+    );
+    $form['API_key']['sub'] = array(
+	 '#type' => 'submit',
+	 '#value' => t('Regenerate'),
+    );
+    return $form;
+}
+
+/**
+ * Handle submission of the translation_admin_settings form and saving
+ * of the API key to the database.
+ */
+function translation_admin_settings_submit($form,$form_state){
+	variable_del('googlemap_api_key');
+	variable_set('googlemap_api_key', $form_state['values']['key']);
+}
+
+/**
+ * Retrieve the AJAX search API key that is in use for the site.
+ */
+function translation_get_key() {
+  $key = variable_get('googlemap_api_key', '');
+  return $key;
+}
+

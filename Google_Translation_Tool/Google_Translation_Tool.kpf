@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Komodo Project File - DO NOT EDIT -->
+<project id="79c46429-1ca9-44f0-828e-5e5a271c720a" kpf_version="4" name="Google_Translation_Tool.kpf">
+<preference-set idref="79c46429-1ca9-44f0-828e-5e5a271c720a">
+  <boolean id="import_live">1</boolean>
+</preference-set>
+</project>

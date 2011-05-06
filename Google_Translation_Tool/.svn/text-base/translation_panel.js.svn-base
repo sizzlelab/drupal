@@ -1,0 +1,136 @@
+
+google.load("language", "1");
+if(Drupal.jsEnabled)
+{
+    $(document).ready(
+        function(){
+	    //input language select
+	    evaluate("language-list");
+	    
+	    $('#edit-original-text').val('');
+	    $('#edit-translation-text').attr('readonly','readonly');
+	}
+    );
+}
+
+/**
+ * Translating the text
+ */
+function translationtext() {
+    var langCode = $('#text-target-translate-language').val();
+    document.cookie = "last_language="+langCode;
+    var original_text = $('#edit-original-text').val();
+    google.language.translate(original_text, '', langCode, function(result) {
+	if (result.translation) {
+	    $('#edit-translation-text').val(result.translation);
+	}
+    });    
+}
+
+/**
+ * Evaluating the list of different languages
+ */
+function evaluate(name) {
+      var languages = document.getElementsByName(name);
+      if(languages==undefined){return;}	
+      var langName;
+      var number=0;
+      var language_text = new Array();
+      var language_value = new Array();
+      var get_the_cookie = false;
+      //input default language
+      var default_language = new Array('en','zh','nl','it','fi');
+      language_text[0] = 'ENGLISH';
+      language_value[0] = 'en';
+      language_text[1] = 'CHINESE';
+      language_value[1] = 'zh';
+      language_text[2] = 'DUTCH';
+      language_value[2] = 'nl';
+      language_text[3] = 'ITALIAN';
+      language_value[3] = 'it';
+      language_text[4] = 'FINISH'
+      language_value[4] = 'fi';
+      //if you change the default language, remeber to modify this number
+      number = 5;
+      
+      for (var i in google.language.Languages) {
+        var thisLangCode = google.language.Languages[i];
+	//check if it's the default_language
+	var default_check = false;
+	for(var la in default_language)
+	{
+	    if(thisLangCode==default_language[la])
+	    {
+		default_check = true;
+		break;
+	    }
+	}
+	if(!default_check)
+	{
+	    language_text[number] = i;
+	    language_value[number] = thisLangCode;
+	    number++;
+	}
+      }
+      
+      //get select language from 
+      var get_last_language = getCookieValue('last_language');
+      
+      for(var key in languages){
+	var languages_obj = languages[key];
+	//put languages to language-list
+	if(languages_obj.options==undefined){continue;}
+	languages_obj.options.length = 91;
+	for (var i=0; i<languages_obj.length;i++) {
+	    languages_obj.options[i].value = language_value[i];
+	    languages_obj.options[i].text = language_text[i];
+	    //check if this language is the selected one
+	    if (language_value[i] == get_last_language) {
+		languages_obj.options[i].selected = 'selected';
+		var get_the_cookie = true;
+	    }
+	}
+	if(get_the_cookie==false)
+	{
+	    languages_obj.options[0].selected = 'selected';
+	}
+      }
+}
+
+/**
+ * fetch cookie value by attribute. example: if cookie likes "key=value", the key is attribute, the value is value
+ */
+function getCookieValue(attribute){
+    cookieStr = document.cookie;
+    var cookieValue = cookieStr.split("; ");
+    for(var i=0;i<cookieValue.length;i++){
+        var arr = cookieValue[i].split("=");
+        if(attribute==arr[0]){
+            var value=arr[1];
+            break;
+	}
+    }
+    return value;
+}
+/**
+ * Go to google translation page
+ */
+function translate_page_onclick(){
+  var lanCode = $('#page-target-translate-language').val();
+  var url = document.location;
+  window.location = 'http://translate.google.com/translate?tl='+lanCode+'&u='+url;
+}
+
+/**
+ * tranlate the content
+ */
+function content_translate_onclick(){
+    var lanCode = $('#content-target-translate-language').val();
+    //copy the original content to translate content
+    $('#translate-content').html($('#original-contnet').html());
+    var e = document.getElementById('translate-content');
+    var list = new Array();
+    list.push(e);
+    translate_elements('',lanCode,list);
+}
+
